@@ -1,0 +1,744 @@
+---
+title: "re_project2"
+author: "Haque, Salehin, 301379662"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+```{r setup1, include=TRUE}
+
+library(pcr)
+library(glmnet)
+library(leaps)
+library(psych)
+library(corrplot)
+library(tidyverse)
+library(caret)
+library(lattice)
+library(randomForest)
+library(gbm)
+
+data <- read.csv("C:/Users/Salehin/Desktop/SFU/STAT452/projects/Data2021_final.csv")
+final.test <- read.csv("C:/Users/Salehin/Desktop/SFU/STAT452/projects/Data2021test_final_noY.csv")
+
+getRMSE <- function(actual, preds){ #funtion to calculate model RMSE values
+    mse= mean( (actual-preds)^2 )
+    return( sqrt(mse) )
+} 
+
+
+```
+
+```{r setup, include=TRUE}
+library(pcr)
+library(glmnet)
+library(leaps)
+library(psych)
+library(corrplot)
+library(tidyverse)
+library(caret)
+library(lattice)
+library(randomForest)
+library(gbm)
+
+data <- read.csv("C:/Users/Salehin/Desktop/SFU/fall_2021/STAT452/projects/Data2021_final.csv")
+final.test <- read.csv("C:/Users/Salehin/Desktop/SFU/fall_2021/STAT452/projects/Data2021test_final_noY.csv")
+
+getRMSE <- function(actual, preds){ #funtion to calculate model RMSE values
+    mse= mean( (actual-preds)^2 )
+    return( sqrt(mse) )
+} 
+
+```
+
+# Exploratory Data Analysis
+
+Initial information of the dataset:
+
+```{r basic info, include=TRUE}
+
+str(data)
+
+summary(data)
+
+```
+
+```{r Correlation matrix, include=TRUE}
+
+cor(data[1:5])
+cor(data[c("Y","X5","X6","X7","X8")])
+cor(data[c("Y","X9","X10","X11","X12")])
+cor(data[c("Y","X13","X14","X15")])
+
+
+
+```
+
+The correlation matrix indicates weak correlation between the predictors and Y.
+
+## Plot Matrix
+
+Below is the pairwise scatterplot-correlation matrix for all the variables:
+
+```{r plot matrix, include=TRUE}
+
+pairs.panels(data[c("Y","X1", "X2","X3")],pch = 21, 
+      bg = c("red", "blue", "green"),
+      font.labels=2,  
+      cex.labels=2)
+
+pairs.panels(data[c("Y","X4","X5")],pch = 21, 
+      bg = c("red", "blue", "green"),
+      font.labels=2,  
+      cex.labels=2)
+
+pairs.panels(data[c("Y","X6","X7")],pch = 21, 
+      bg = c("red", "blue", "green"),
+      font.labels=2,  
+      cex.labels=2)
+
+pairs.panels(data[c("Y","X8","X9")],pch = 21, 
+      bg = c("red", "blue", "green"),
+      font.labels=2,  
+      cex.labels=2)
+
+pairs.panels(data[c("Y","X10","X11")],pch = 21, 
+      bg = c("red", "blue", "green"),
+      font.labels=2,  
+      cex.labels=2)
+
+pairs.panels(data[c("Y","X12","X13")],pch = 21, 
+      bg = c("red", "blue", "green"),
+      font.labels=2,  
+      cex.labels=2)
+
+pairs.panels(data[c("Y","X14","X15")],pch = 21, 
+      bg = c("red", "blue", "green"),
+      font.labels=2,  
+      cex.labels=2)
+
+```
+
+## Data Partition
+
+First, I will be partitioning the data with 80% in the train set and the rest in test set.
+
+```{r data partition, include=TRUE}
+
+set.seed(442)
+index <- sample(1:nrow(data),nrow(data)*0.8,replace=F)
+train <- data[index,]
+train.Y <- train$Y
+dim(train)
+test <- data[-index,]
+test.Y <- test$Y      # Actual test set Y values
+dim(test)
+
+```
+
+# 1. What models or machines did you attempt to fit? For each one, paste the R code from your program for the initial successful model fit.
+
+## Baseline Model
+
+From the scatterplot panels in the first section, it can be seen simple linear regression would not be a good fit for the data. However, I will fit a linear regression which will give me a measure of model performance between different models. The linear regression model will act as the baseline against which model performance would be compared. The metric for comparison is root-MSE, and the rmse of both train set and test set will be measured to check for overfitting. 
+
+```{r lm rmse, include=TRUE}
+
+lm.mod <- lm(Y~.,data=train)
+
+summary(lm.mod)
+
+lm.pred.train <- predict(lm.mod,newdata=train)
+lm.pred.test <- predict(lm.mod,newdata=test)
+
+
+
+lm.rmse.train <- getRMSE(train$Y,lm.pred.train)
+
+
+lm.rmse.test <- getRMSE(test.Y,lm.pred.test)
+
+lm.rmse <- c(lm.rmse.train,lm.rmse.test)
+lm.rmse # LM model RMSE values
+
+par(mfrow=c(2,2))
+plot(lm.mod)
+```
+
+The diagnostic plots indicate some outlier data points at rows = 106,90,223.
+
+
+## Boosting 1
+
+Here I will try a boosting-tree model with varying tuning parameters of shrinkage and depth. The best selection of the tuning parameters will go into the final boosting model. 
+
+
+Grid search algorithm indicates that shrinkage=0.005 and depth=6 would be a good choice in this case.
+
+```{r boosting_model,include=TRUE}
+
+boost.mod <- gbm(data=train, Y~., distribution="gaussian", 
+                       n.trees=5000, interaction.depth=6, shrinkage=0.005, 
+                       bag.fraction=0.8)
+
+boost.pred.train <- predict(boost.mod,newdata=train)
+boost.pred.test <- predict(boost.mod,newdata=test)
+
+
+boost.rmse.train = getRMSE(train.Y,boost.pred.train)
+boost.rmse.test = getRMSE(test.Y, boost.pred.test)
+boost.rmse <- c(boost.rmse.train,boost.rmse.test)
+boost.rmse # boosting model RMSE values
+
+
+summary(boost.mod)
+
+```
+
+From the boosting model, it can be seen that the top 8 predictors are:
+ X15, X1, X8, X5, X14, X12, X6 & X13.
+
+## Random Forest 1
+
+Here I will try the randomForest model. 
+
+Tuning parameter will be mtry (number of predictors). 
+
+Fitting a randomForest() with mtry=9;
+
+
+```{r rf_model, include=TRUE}
+
+set.seed(1010)
+rf.mod <- randomForest(Y ~ ., 
+                      data = train, 
+                      mtry = 9, 
+                      type="regression", 
+                      importance = TRUE, 
+                      ntrees = 500)
+
+rf.pred.train <- predict(rf.mod,newdata=train)
+rf.pred.test <- predict(rf.mod,newdata=test)
+
+
+rf.rmse.train = getRMSE(train$Y,rf.pred.train)
+rf.rmse.test = getRMSE(test.Y, rf.pred.test)
+rf.rmse <- c(rf.rmse.train,rf.rmse.test)
+rf.rmse # randomForest RMSE values
+
+
+importance(rf.mod,type=1)
+
+```
+
+
+The top 8 most important variables in this case are: X12, X1, X4, X10, X2, X15, X14 & X5.
+
+
+## Lasso Regression
+
+Here I will try the LASSO regression, varying the tuning parameter lambda to find the best model fit in this case.
+
+
+```{r lasso_model, include=TRUE}
+
+set.seed(500)
+
+x_train <- model.matrix(Y~.,data=train)
+x_test <- model.matrix(Y~.,data=test)
+
+grid <- 10^seq(10, -2, length = 100)
+lasso_reg_cv <- cv.glmnet(x_train, train.Y, type.measure="mse",alpha = 1, family="gaussian", lambda=grid, standardize = TRUE, nfolds = 5)
+
+plot(lasso_reg_cv)
+optimal_lambda <- lasso_reg_cv$lambda.min
+optimal_lambda
+
+
+cat('Min Lambda: ', lasso_reg_cv$lambda.min, '\n 1Sd Lambda: ', lasso_reg_cv$lambda.1se)
+df_coef <- round(as.matrix(coef(lasso_reg_cv, s=lasso_reg_cv$lambda.min)), 2)
+
+df_coef[df_coef[, 1] != 0, ]
+
+```
+
+LASSO recognizes only X1 to be the most significant predictor in this case.
+
+## Subset Selection 1
+
+Here I will try allsubset selection and backwards stepwise selection.
+
+```{r all_subset1, include=TRUE}
+
+mod.allsubset = regsubsets(Y~.,
+                           nbest = 1,       # 1 best model for each number of predictors
+                           nvmax = NULL,    # NULL for no limit on number of variables
+                           force.in = NULL, force.out = NULL,
+                           method = "exhaustive",
+                           data=train)
+summary(mod.allsubset) 
+
+```
+
+The top 6 predictors identified by this model are X1, X2, X6, X9, X15 and X10 respectively.
+
+```{r backward stepwise1, include=TRUE}
+
+mod.backw <- regsubsets(Y~.,data=train,method="backward")
+summary(mod.backw)
+
+```
+
+
+The top eight predictors by the backward stepwise algoritm is X1, X2, X6, X9, X15, X10, X11 & X8. The top 6 predictors are the same as the ones from the allsubset model.
+
+
+## Feature Engineering 1
+
+Here I will retry fitting a new linear regression model by doing some feature engineering based on the information from the histograms from Plot Matrix section. I will also be removing the outliers found in the initial baseline model to see whether the new linear regression model improves on the baseline model. 
+
+Important predictors identified previously:
+
+Boosting - X15, X1, X8, X5, X14, X12, X6 & X13.
+RandomForest - X12, X1, X4, X10, X2, X15, X14 & X5.
+Backwards Stepwise - X1, X2, X6, X9, X15, X10, X11 & X8
+
+Some of these will be transformed as below:
+
+
+```{r feature_engineering, include=TRUE}
+
+set.seed(1301)
+data_eng <-  data %>%
+  slice(-c(236,119,40)) %>%
+  mutate(X2.eng = as.factor(ifelse(X2>10,"1","0"))) %>%
+  mutate(X5.eng = as.factor(ifelse(X5>10,"1","0"))) %>%
+  mutate(X6.eng = as.factor(ifelse(X6>20,"1","0"))) %>%
+  mutate(X15.eng = as.factor(ifelse(X15>10,"1","0"))) %>%
+  mutate(X12.eng = as.factor(ifelse(X12>10,"1","0"))) %>%
+  mutate(X4.eng = as.factor(ifelse(X4>0,"1","0"))) %>%
+  dplyr::select(-c(X2,X15,X4,X5,X6,X12))
+
+dim(data_eng)
+
+index_eng <- sample(1:nrow(data_eng),nrow(data_eng)*0.8,replace=F)
+train_eng <- data_eng[index_eng,]
+train_eng_Y <- train_eng$Y
+dim(train_eng)
+test_eng <- data_eng[-index_eng,]
+test_eng_Y <- test_eng$Y
+dim(test_eng)
+
+```
+
+
+## Baseline Model 2
+
+```{r second_baseline, include=TRUE}
+set.seed(8508)
+
+lm_mod_eng <- lm(Y~.,data=train_eng)
+
+summary(lm_mod_eng)
+
+lm.pred.train.eng <- predict(lm_mod_eng,newdata=train_eng)
+lm.pred.test.eng <- predict(lm_mod_eng,newdata=test_eng)
+
+lm.rmse.train.eng <- getRMSE(train_eng_Y,lm.pred.train.eng)
+
+lm.rmse.test.eng <- getRMSE(test_eng_Y,lm.pred.test.eng)
+
+lm.rmse.eng <- c(lm.rmse.train.eng,lm.rmse.test.eng)
+lm.rmse.eng # LM model RMSE values
+
+par(mfrow=c(2,2))
+plot(lm_mod_eng)
+
+```
+
+Root-mse values of second baseline model improves on the first one after feature engineering. It also identifies important predictors, which include X1, X4.eng, X2.eng, X6.eng & X12.eng.
+
+Next I will do boosting, randomforest and stepwise a second time on the engineered datasets.
+
+### Boosting 2
+
+Fitting a boost model with s=0.005 & d=2
+
+```{r boost_model2, include=TRUE}
+
+set.seed(90908)
+
+boost.mod.eng <- gbm(data=train_eng, Y~., distribution="gaussian", 
+                       n.trees=5000, interaction.depth=2, shrinkage=0.005, 
+                       bag.fraction=0.8)
+
+boost.pred.train.eng <- predict(boost.mod.eng,newdata=train_eng)
+boost.pred.test.eng <- predict(boost.mod.eng,newdata=test_eng)
+
+
+boost.rmse.train.eng = getRMSE(train_eng_Y, boost.pred.train.eng)
+boost.rmse.test.eng = getRMSE(test_eng_Y, boost.pred.test.eng)
+boost.rmse.eng <- c(boost.rmse.train.eng, boost.rmse.test.eng)
+boost.rmse.eng # boosting model RMSE values
+
+
+summary(boost.mod.eng)
+
+```
+
+The rmse values are similar to the initial boosting model. Important predictors identified here are: 
+X1, X11, X13, X8, X14, X10, X3 & X4.eng
+
+### Random Forest 2
+
+
+Fitting a randomForest() with mtry=8;
+
+
+```{r rf_model2, include=TRUE}
+
+set.seed(1010100)
+rf.mod.eng <- randomForest(Y ~ ., 
+                      data = train_eng, 
+                      mtry = 8, 
+                      type="regression", 
+                      importance = TRUE, 
+                      ntrees = 500)
+
+rf.pred.train.eng <- predict(rf.mod.eng,newdata=train_eng)
+rf.pred.test.eng <- predict(rf.mod.eng,newdata=test_eng)
+
+
+rf.rmse.train.eng = getRMSE(train_eng_Y,rf.pred.train.eng)
+rf.rmse.test.eng = getRMSE(test_eng_Y, rf.pred.test.eng)
+
+rf.rmse.eng <- c(rf.rmse.train.eng,rf.rmse.test.eng)
+rf.rmse.eng # randomForest RMSE values
+
+
+importance(rf.mod.eng,type=1)
+
+```
+
+Important predictors identified by the second randomforest model are: X14, X4.eng, X1, X13 & X10.
+
+### Subset Selection 2
+
+Here I will try allsubset selection and backwards stepwise selection.
+
+```{r all_subset, include=TRUE}
+
+mod.allsubset.eng = regsubsets(Y~.,
+                           nbest = 1,       # 1 best model for each number of predictors
+                           nvmax = NULL,    # NULL for no limit on number of variables
+                           force.in = NULL, force.out = NULL,
+                           method = "exhaustive",
+                           data=train_eng)
+summary(mod.allsubset.eng) 
+
+```
+
+The top 6 predictors identified by the second all_subset model are X4.eng, X1, X2.eng, X12.eng, X6.eng & X15.eng respectively.
+
+```{r backward stepwise, include=TRUE}
+
+mod.backw.eng <- regsubsets(Y~.,data=train_eng,method="backward")
+summary(mod.backw.eng)
+
+```
+
+The top six predictors by the second backward stepwise algoritm are the same as the ones from the second allsubset model.
+
+### Observations
+
+Top predictors identified by the four models after feature engineering are:
+
+boosting - X1, X11, X13, X8, X14, X10, X3 & X4.eng
+randomforest - X14, X4.eng, X1, X13 & X10
+stepwise - X4.eng, X1, X2.eng, X12.eng, X6.eng & X15.eng
+linear regression model - X1, X4.eng, X2.eng, X6.eng & X12.eng
+
+Notable here is that X1 & X4.eng had been identified as important by all 4 models, while
+X13, X14, X10 had been identified as important by both boosting & randomforest models.
+
+The first boosting model identified the predictors X15, X1, X8, X5, X14, X12, X6 & X13.
+And the initial randomforest model identified X12, X1, X4, X10, X2, X15, X14 & X5.
+
+
+Next I will create new non-linear models with X4 being the only engineered predictor to be included. The relationships between the predictors and Y are observed to be non-linear, hence why non-linear models will be emphasized. Some extremely useless predictors such as X7, X9, X6, X13 will be excluded
+
+
+The 5 predictors, X1, X4.eng, X13, X14, X10 I assume to be the most important ones in the actual dataset. 
+
+### Feature Engineering 2
+
+```{r final_wrangling, include=TRUE}
+
+set.seed(1302)
+
+data_fin <-  data %>%
+  slice(-c(236,119,40)) %>%
+  mutate(X2.eng = as.factor(ifelse(X2>10,"1","0"))) %>%
+  mutate(X5.eng = as.factor(ifelse(X5>10,"1","0"))) %>%
+  mutate(X4.eng = as.factor(ifelse(X4>0,"1","0"))) %>%
+  dplyr::select(-c(X2,X4,X5))
+
+
+index_fin <- sample(1:nrow(data_fin),nrow(data_fin)*0.8,replace=F)
+train_fin <- data_fin[index_fin,]
+train_fin_Y <- train_fin$Y
+
+test_fin <- data_fin[-index_fin,]
+test_fin_Y <- test_fin$Y
+
+```
+
+
+
+### Random Forest 3
+
+Fitting a randomForest model with mtry=4
+
+```{r rforest3, include=TRUE}
+
+set.seed(1010100)
+rf.mod.fin <- randomForest(Y ~ X1+X2.eng+X3+X4.eng+X5.eng+X8+X10+X11+X12+X14+X15, 
+                      data = train_fin, 
+                      mtry = 4, 
+                      type="regression", 
+                      importance = TRUE, 
+                      ntrees = 500)
+
+rf.pred.train.fin <- predict(rf.mod.fin,newdata=train_fin)
+rf.pred.test.fin <- predict(rf.mod.fin,newdata=test_fin)
+
+
+rf.rmse.train.fin = getRMSE(train_fin_Y,rf.pred.train.fin)
+rf.rmse.test.fin = getRMSE(test_fin_Y, rf.pred.test.fin)
+
+rf.rmse.fin <- c(rf.rmse.train.fin,rf.rmse.test.fin)
+rf.rmse.fin # randomForest RMSE values
+
+
+importance(rf.mod.fin,type=1)
+
+```
+
+
+The RMSE value for randomforest is unsatisfactory, therefore, the boosting model seems to be the better choice.
+
+
+
+# 2. What process(es) did you use to evaluate and compare models and to select your final model?
+
+After data partioning, I first made a baseline linear regression model to find out training set and test set rMSE. On the assumption that the predictors had a non-linear complex relationship with Y, I assumed that other models would continue to improve on the baseline model. I then fitted a boosting, randomforest, stepwise selection & LASSO regression models on the training set. Having noted down the predictors extracted by randomforest, boosted & stepwise models, I conducted feature engineering on some of the predictors based on my initial observations of their distribution, scatterplot and histogram. With the featured variables I refitted new linear regression, boost, randomforest, &  stepwise models on the new dataset, and made a note of the important predictors. 
+
+I compared the list of important features extracted by the new models with the previous ones, and completed a second round of feature engineering based on observations and guesswork. Lastly, I fit new boosting and randomforest models, and evaluated their rmse values to find boosting to be a better fit.
+
+
+# 3. Did you tune any methods?
+
+I had tuned the initial boosted and randomforest models andalso the final boosted models.
+
+I used caret's built-in function that automatically tunes parameters through cross-validation to find the best error rates for each tuning parameter. 
+
+For initial boosting model, I tuned shrinkage= (0.001,0.005,0.025,0.125) and depth <- c(2,4,6)
+
+```{r boosting_tuning1, include=TRUE}
+
+set.seed(442)
+
+fitControl <- trainControl(## 10-fold CV
+                           method = "repeatedcv",
+                           number = 10,
+                           ## repeated ten times
+                           repeats = 10)
+
+lambda <- c(0.001,0.005,0.025,0.125)
+depth <- c(2,4,6)
+trees <- 1000
+
+gbmGrid <-  expand.grid(interaction.depth = depth, 
+                        n.trees = trees, 
+                        shrinkage = lambda,
+                        n.minobsinnode = 20)
+
+gbmfit <- train(Y ~ ., data = train, 
+                 method = "gbm", 
+                 trControl = fitControl,
+                 distribution="gaussian",
+                 bag.fraction=0.8,
+                 verbose = FALSE, 
+                 preProcess = c("center", "scale"),
+                 tuneGrid = gbmGrid)
+
+gbmfit
+plot(gbmfit)
+```
+
+For intial randomforest model, I tuned mtry and found 9 to be the best option for the mtry parameter.
+
+Tuning parameter will be mtry (number of predictors) 
+
+```{r rf_tuning1, include=TRUE}
+
+oob = trainControl(method = "oob")
+rf_grid =  expand.grid(mtry = 2:16)
+
+set.seed(825)
+rf.tune = train(Y ~ ., data = train,
+                     method = "rf",
+                     trControl = oob,
+                     verbose = FALSE,
+                     tuneGrid = rf_grid)
+rf.tune
+plot(rf.tune)
+
+```
+
+For the final boosted model, I tuned shrinkage = (0.001,0.005,0.01) and depth <- c(2,4,6). 
+
+```{r boosting_tuning3, include=TRUE}
+
+set.seed(44562)
+
+fitControl <- trainControl(## 10-fold CV
+                           method = "repeatedcv",
+                           number = 10,
+                           ## repeated ten times
+                           repeats = 10)
+
+lambda <- c(0.001,0.005,0.01)
+depth <- c(2,4,6)
+trees <- 1000
+
+gbmGrid <-  expand.grid(interaction.depth = depth, 
+                        n.trees = trees, 
+                        shrinkage = lambda,
+                        n.minobsinnode = 20)
+
+gbmfit <- train(Y ~ ., data = train_fin, 
+                 method = "gbm", 
+                 trControl = fitControl,
+                 distribution="gaussian",
+                 bag.fraction=0.8,
+                 verbose = FALSE, 
+                 preProcess = c("center", "scale"),
+                 tuneGrid = gbmGrid)
+
+gbmfit
+plot(gbmfit)
+```
+
+# 4. What was your chosen prediction machine?
+
+### Boosted Model 3
+
+Fitting a boosted model with d=4 and s=0.01 obtained from tuning.
+
+
+```{r boosting3, include=TRUE}
+
+set.seed(2021)
+
+boost.mod.fin <- gbm(data=train_fin, Y~X1+X3+X4.eng+X5.eng+X8+X10+X11+X12+X14+X15, distribution="gaussian", n.trees=5000, interaction.depth=4, shrinkage=0.01, 
+                       bag.fraction=0.8)
+
+boost.pred.train.fin <- predict(boost.mod.fin,newdata=train_fin)
+boost.pred.test.fin <- predict(boost.mod.fin,newdata=test_fin)
+
+
+boost.rmse.train.fin = getRMSE(train_fin_Y, boost.pred.train.fin)
+boost.rmse.test.fin = getRMSE(test_fin_Y, boost.pred.test.fin)
+boost.rmse.fin <- c(boost.rmse.train.fin, boost.rmse.test.fin)
+boost.rmse.fin # boosting model RMSE values
+
+summary(boost.mod.fin)
+```
+
+A noticeable drop in RMSE is observed. 
+
+## Data Wrangling on Final Test Set
+
+Since I had done feature engineering on the inital dataset, to make a prediction using the final dataset I would need to do similar feature engineering on it as well.
+
+
+Here I will run summary statistics on the final test set as before to see if the assumptions of similar distribution and variability holds. 
+
+
+```{r final_plot, include=TRUE}
+
+summary(data)
+
+summary(final.test)
+
+
+```
+
+### Correlation Matrixes
+
+The correlation matrix of the predictors in the final test set is given below:
+
+```{r corr_matrix final_set, include=TRUE}
+
+cor(final.test[1:5])
+cor(final.test[c("X5","X6","X7","X8")])
+cor(final.test[c("X9","X10","X11","X12")])
+cor(final.test[c("X13","X14","X15")])
+
+```
+
+The correlation matrix of the predictors in the initial dataset is given below:
+
+
+```{r corr_matrix initial_set, include=TRUE}
+
+cor(data[2:5])
+cor(data[c("X5","X6","X7","X8")])
+cor(data[c("X9","X10","X11","X12")])
+cor(data[c("X13","X14","X15")])
+
+```
+
+It can be seen that the spread & variance of the initial set is similar to the final set, and the correlation between the predictors are also similar with slight variations. Thus I can say that my assumptions hold.
+
+### Feature Engineering on Final Test Set
+
+```{r final_test_wrangling1, include=TRUE}
+
+final_wrangling <-  final.test %>%
+  mutate(X2.eng = as.factor(ifelse(X2>10,"1","0"))) %>%
+  mutate(X5.eng = as.factor(ifelse(X5>10,"1","0"))) %>%
+  mutate(X4.eng = as.factor(ifelse(X4>0,"1","0"))) %>%
+  dplyr::select(-c(X2,X4,X5))
+
+```
+
+### Final Prediction
+
+
+```{r final pred, include=TRUE}
+
+final_pred <- predict(boost.mod.fin, newdata=final_wrangling)
+final_pred <- as.data.frame(final_pred)
+
+
+# write.table(final_pred, "predictions.csv", col.names=FALSE,row.names=FALSE)
+
+```
+
+# 5.List the variables that you believe are important
+
+Important predictors identified by the final boosted model are: X11, X14, X15, X8, X3, X1, X12
+
+The final randomforest model identifies predictors X12, X1, X10, X4.eng, X2.eng, X15
+
+Important predictors identified by the second randomforest model are: X14, X4.eng, X1, X13 & X10. 
+
+Important predictors by the second boosted model are X1, X11, X13, X8, X14, X10, X3 & X4.eng
+
+## Final List of important variables
+
+X1, X4, X14, X15
